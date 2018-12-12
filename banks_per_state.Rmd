@@ -1,0 +1,51 @@
+---
+title: "Does Minnesota Have More Banks Than Nebraska"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+pacman::p_load(tidyverse, rvest, glue, curl, jsonlite)
+
+fdic_handle <- new_handle()
+handle_setheaders(fdic_handle, accept = "application/json")
+url <- glue("https://banks.data.fdic.gov/api/locations")
+
+base_query <- curl_fetch_memory(url = url, handle = fdic_handle)$content %>%
+    rawToChar() %>%
+    fromJSON()
+
+total_records <- base_query$meta$total
+
+batches <- seq(from = 0, to = total_records, by = 1000)
+
+pb <- progress_estimated(length(batches))
+
+download_locations <- function(offset, total, .pb = NULL) {
+    if ((!is.null(.pb)) && inherits(.pb, "Progress") && (.pb$i < .pb$n)) .pb$tick()$print()
+    
+    if(offset + 1000 > total) {
+        limit <- total - offset
+    } else {
+        limit <- 1000
+    }
+    
+    url <- glue("https://banks.data.fdic.gov/api/locations?limit=",limit,"&offest=",offset)
+    response <- curl_fetch_memory(url = url, handle = fdic_handle)$content %>%
+        rawToChar() %>%
+        fromJSON()
+    return(response$data$data)
+}
+
+download_locations(90210, total_records)
+
+fdic_bank_locations <- map_df(batches, download_locations, total = total_records, .pb=pb)
+
+write_csv(fdic_bank_locations, "fdic_bank_locations.csv")
+```
+    
