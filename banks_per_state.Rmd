@@ -10,76 +10,67 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-pacman::p_load(tidyverse, rvest, glue, curl, jsonlite, skimr)
+pacman::p_load(tidyverse, rvest, glue, httr, jsonlite, skimr)
+```
 
 
+```{r, eval = F}
 # Check for data file, download and/or unzip if necessary
 
 if(!file.exists("fdic_bank_locations.zip")) {
   
-  # Setup new handle to pass http header to FDIC API to request JSON formated data.
-  # Requesting JSON allows retrieval of extra metadata such as total records available
-  # total records will be needed, as a single API call is limited to 1000 records returned
-  # Total will be needed to know how many batches to pull
-  fdic_handle <- new_handle()
-  handle_setheaders(fdic_handle, accept = "application/json")
-  
   # Pull a single query from the FDIC Locations API to get metadata and determine total records available
-  url <- glue("https://banks.data.fdic.gov/api/locations")
-  base_query <- curl_fetch_memory(url = url, handle = fdic_handle)$content %>%
-    rawToChar() %>%
+  base_req <- GET(url = "https://banks.data.fdic.gov/api/locations",
+                  query = list(limit = 1, offset = 0),
+                  add_headers(accept = "application/json")) %>% stop_for_status()
+  
+  base_query <- base_req %>%
+    content(as = "text") %>%
     fromJSON()
   
-  total_records <- base_query$meta$total
+  total_results <- base_query$meta$total
+  
   
   # Offset value to send to API for each batch
-  batches <- seq(from = 0, to = total_records, by = 1000)
-  
+  batches <- seq(from = 0, to = total_results, by = 1000)
   names(batches) <- batches
   
   pb <- progress_estimated(length(batches))
   
-  download_locations <- function(offset, total, .pb = NULL) {
-    Sys.sleep(5)
-    batch_handle <- new_handle()
-    handle_setheaders(batch_handle, accept = "application/json")
-    
-    
+  download_locations <- function(offset, .pb = NULL) {
     # Function to download a single batch from the FDIC Location API
     if ((!is.null(.pb)) && inherits(.pb, "Progress") && (.pb$i < .pb$n)) .pb$tick()$print()
     
+    # Ensure offset number is an integer
     offset <- as.integer(offset)
     
-    # Limit must be adjusted for the last batch.  Batches always return the number of records set by limit.
-    # So if the limit or 1000 is larger than the remaining number of records, the last 1000 records are returned
-    # and data will be duplicated.
-    if(offset + 1000 > total) {
-      limit <- total - offset
-    } else {
-      limit <- 1000
-    }
+    # Build request URL with limits & offset using httr
+    req <- GET(url = "https://banks.data.fdic.gov/api/locations",
+               query = list(limit = 1000, offset = offset),
+               add_headers(accept = "application/json")) %>% 
+      stop_for_status()
     
-    # Build URL with limit & offsets and pass to API
-    url <- glue("https://banks.data.fdic.gov/api/locations?limit=",limit,"&offest=",offset)
-    response <- curl_fetch_memory(url = url, handle = batch_handle)$content %>%
-      rawToChar() %>%
+    # Parse JSON response
+    query <- req %>%
+      content(as = "text") %>% 
       fromJSON()
     
-    return(response$data$data)
+    # Return just the embeded data frame
+    return(query$data$data)
   }
   
   # Process batches and merge into a single data frame
-  fdic_bank_locations <- map_df(batches, download_locations, total = total_records, .pb=pb, .id = "offset")
+  fdic_bank_locations <- map_df(batches, download_locations, .pb=pb, .id = "offset")
   
   # Save the data frame as a CSV for future use.
   write_csv(fdic_bank_locations, "fdic_bank_locations.csv")
   
   # ZIP the CSV for upload to Github
   zip("fdic_bank_locations.zip", "fdic_bank_locations.csv")
-
+  
 } else if(!file.exists("fdic_bank_locations.csv")) {
-
-    unzip("fdic_bank_locations.zip")
+  
+  unzip("fdic_bank_locations.zip")
   
 } else {
   
@@ -89,72 +80,87 @@ if(!file.exists("fdic_bank_locations.zip")) {
 ```
 
 ```{r}
-fdic_bank_locations %>%
+  # Pull a single query from the FDIC Locations API to get metadata and determine total records available
+  base_req <- GET(url = "https://banks.data.fdic.gov/api/institutions",
+                  query = list(limit = 1, offset = 0, filters = "ACTIVE:1"),
+                  add_headers(accept = "application/json")) %>% stop_for_status()
+  
+  base_query <- base_req %>%
+    content(as = "text") %>%
+    fromJSON()
+  
+  total_results <- base_query$meta$total
+  
+  
+  # Offset value to send to API for each batch
+  batches <- seq(from = 0, to = total_results, by = 1000)
+  names(batches) <- batches
+  
+  pb <- progress_estimated(length(batches))
+  
+  download_institutions <- function(offset, .pb = NULL) {
+    # Function to download a single batch from the FDIC Location API
+    if ((!is.null(.pb)) && inherits(.pb, "Progress") && (.pb$i < .pb$n)) .pb$tick()$print()
+    
+    # Ensure offset number is an integer
+    offset <- as.integer(offset)
+    
+    # Build request URL with limits & offset using httr
+    req <- GET(url = "https://banks.data.fdic.gov/api/locations",
+               query = list(filters = "ACTIVE:1",
+                            limit = 1000,
+                            offset = offset),
+               add_headers(accept = "application/json")) %>% 
+      stop_for_status()
+    
+    # Parse JSON response
+    query <- req %>%
+      content(as = "text") %>% 
+      fromJSON()
+    
+    # Return just the embeded data frame
+    return(query$data$data)
+  }
+  
+  # Process batches and merge into a single data frame
+  fdic_certs <- map_df(batches, download_institutions, .pb=pb)
+  
+  download_institutions(0)
+```
+
+```{r}
+fdic_certs %>%
+  distinct()
+```
+
+
+
+```{r}
+fdic_location_df %>%
   skim()
 ```
     
-Only 45 unique states? Why not 50?  Which states have no FDIC insured banks?
+
+Still seeing a large number of duplicates
 
 ```{r}
 fdic_bank_locations %>%
-  distinct(NAME) %>%
-  arrange(NAME)
-```
-
-Looks like maybe we only grabbed a subset
-
-```{r}
-fdic_bank_locations %>%
-  count(BKCLASS, sort = T)
-
-fdic_bank_locations %>%
-  distinct(RUNDATE)
+  filter(UNINUM %in% fdic_bank_locations$UNINUM[duplicated(fdic_bank_locations$UNINUM)]) %>%
+  count(offset) %>%
+  arrange(as.numeric(offset))
 ```
 
 ```{r}
 fdic_bank_locations %>%
-  count(STALP) %>%
-  arrange(STALP)
+  filter(UNINUM %in% fdic_bank_locations$UNINUM[duplicated(fdic_bank_locations$UNINUM)]) %>%
+  select(UNINUM, offset) %>%
+  arrange(UNINUM, as.numeric(offset))
 ```
 
 ```{r}
 fdic_bank_locations %>%
-  count(SERVTYPE, sort = T)
-```
-
-```{r}
-fdic_bank_locations %>%
-  mutate(offset = as.numeric(offset)) %>%
-  distinct(UNINUM, offset) %>%
-  arrange(UNINUM, offset) %>%
-  View()
-
-```
-
-```{r}
-fdic_bank_locations %>%
-  count(UNINUM, NAME, ADDRESS)
-```
-
-```{r}
-fdic_bank_locations %>%
-  filter(UNINUM == 12648) %>%
-  select(offset)
-```
-
-
-So it looks like we didn't pull the data correctly and we have repeats...
-
-```{r}
-batch_one <- download_locations(0, total = total_records)
-batch_two <- download_locations(1000, total = total_records)
-```
-
-```{r}
-tail(batch_one)
-```
-
-```{r}
-head(batch_two)
+  filter(UNINUM %in% fdic_bank_locations$UNINUM[duplicated(fdic_bank_locations$UNINUM)]) %>%
+  ggplot(aes(x = as.numeric(offset), y = as.numeric(UNINUM))) +
+  geom_point()
 ```
 
