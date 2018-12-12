@@ -106,7 +106,7 @@ if(!file.exists("fdic_bank_locations.zip")) {
     offset <- as.integer(offset)
     
     # Build request URL with limits & offset using httr
-    req <- GET(url = "https://banks.data.fdic.gov/api/locations",
+    req <- GET(url = "https://banks.data.fdic.gov/api/institutions",
                query = list(filters = "ACTIVE:1",
                             limit = 1000,
                             offset = offset),
@@ -124,13 +124,13 @@ if(!file.exists("fdic_bank_locations.zip")) {
   
   # Process batches and merge into a single data frame
   fdic_certs <- map_df(batches, download_institutions, .pb=pb)
-  
-  download_institutions(0)
+
 ```
 
 ```{r}
 fdic_certs %>%
-  distinct()
+  distinct() %>%
+  nrow()
 ```
 
 
