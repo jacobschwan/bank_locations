@@ -1,0 +1,31 @@
+---
+title: "Bank Location Data"
+output: html_notebook
+---
+
+```{r}
+pacman::p_load(tidyverse, rvest, glue, curl)
+```
+
+Pull location data for American National Bank branches as a baseline utilizing the FDIC Bank Data API
+https://banks.data.fdic.gov/docs/#api_endpoints
+
+American National Bank's FDIC Certificate # is 19300
+
+```{r}
+fdic_handle <- new_handle()
+handle_setheaders(fdic_handle, accept = "text/csv")
+url <- glue("https://banks.data.fdic.gov/api/locations?filters=",curl_escape("CERT:19300"),"&limit=100")
+
+anb_branches <- curl_fetch_memory(url = url, handle = fdic_handle)$content %>%
+    rawToChar() %>%
+    read_csv()
+```
+
+Define the competition area by state and county of ANB branches.
+
+```{r}
+anb_branches %>%
+    distinct(STALP, COUNTY)
+```
+
