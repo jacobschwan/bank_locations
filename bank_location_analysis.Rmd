@@ -53,6 +53,67 @@ if(!file.exists("sod_variables_definitions.xls")) {
 
 
 ```{r}
-sod_2018 <- read_csv()
+sod_2018 <- read_csv("ALL_2018.csv")
+```
+
+```{r}
+sod_2018_1 <- read_csv("ALL_2018_1.csv")
+```
+
+```{r}
+sod_2018_2 <- read_csv("ALL_2018_2.csv")
+```
+
+```{r}
+nrow(sod_2018_1) + nrow(sod_2018_2)
+```
+
+So 1 & 2 and just ALL broken up in some way...
+
+```{r}
+sod_2018 %>%
+    count(STNAMEBR, sort = T)
+```
+
+```{r}
+sod_2018 %>%
+    distinct(STNAMEBR, NAMEFULL) %>%
+    count(STNAMEBR, sort = T)
+```
+
+Minnesota is thrid highest in unique banks with 297 compared to only 160 in Nebraska
+
+```{r}
+(anb_msas <- sod_2018 %>%
+    filter(CERT == "19300") %>%
+    count(NAMEFULL, STNAMEBR, MSANAMB, MSABR, CERT))
+```
+
+Just banks in our MSA
+
+```{r}
+sod_2018 %>% 
+    filter(MSABR %in% c(33460,36540)) %>%
+    distinct(MSANAMB, NAMEFULL) %>%
+    count(MSANAMB, sort = T)
+```
+
+There are over twice as many banks present in MSP as there are in OCB
+
+```{r}
+anb_primary_msas <- sod_2018 %>%
+    filter(MSABR %in% c(33460,36540))
+```
+
+```{r}
+anb_primary_msas %>%
+    distinct(NAMEFULL, MSABR, .keep_all = T) %>%
+    select(MSANAMB, NAMEFULL, ASSET) %>%
+    group_by(MSANAMB) %>%
+    summarise(ASSET = sum(ASSET))
+```
+
+```{r}
+pacman::p_load(tidycensus)
 ```
 
