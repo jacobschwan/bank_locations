@@ -1,0 +1,58 @@
+---
+title: "Bank Locations Analysis"
+author: "Jacob Schwan"
+date: "12/12/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+pacman::p_load(tidyverse)
+```
+
+
+Download Institutions & Location data
+
+
+```{r}
+if(!file.exists("Offices2.zip")) {
+    download.file("https://www5.fdic.gov/idasp/Offices2.zip",
+                  "Offices2.zip")
+}
+
+unzip("Offices2.zip")
+```
+
+Looks like they provide a nice data dictionary
+
+```{r}
+read_csv("OFFICES2_DEFINITIONS.CSV") %>%
+    View("Data Dictionary")
+```
+
+Looks like we actucally would be better served with the Summary of Deposits data set=
+
+```{r}
+if(!file.exists("SOD2018.zip")) {
+    download.file("https://www5.fdic.gov/sod/download/ALL_2018.ZIP",
+                  "ALL_2018.ZIP")
+}
+
+unzip("ALL_2018.ZIP")
+
+#Data dictionary
+if(!file.exists("sod_variables_definitions.xls")) {
+    download.file("https://www5.fdic.gov/sod/pdf/sod_variables_definitions.xls",
+                  "sod_variables_definitions.xls")
+}
+```
+
+
+
+```{r}
+sod_2018 <- read_csv()
+```
+

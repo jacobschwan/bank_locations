@@ -1,0 +1,166 @@
+---
+title: "Does Minnesota Have More Banks Than Nebraska"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+pacman::p_load(tidyverse, rvest, glue, httr, jsonlite, skimr)
+```
+
+
+```{r, eval = F}
+# Check for data file, download and/or unzip if necessary
+
+if(!file.exists("fdic_bank_locations.zip")) {
+  
+  # Pull a single query from the FDIC Locations API to get metadata and determine total records available
+  base_req <- GET(url = "https://banks.data.fdic.gov/api/locations",
+                  query = list(limit = 1, offset = 0),
+                  add_headers(accept = "application/json")) %>% stop_for_status()
+  
+  base_query <- base_req %>%
+    content(as = "text") %>%
+    fromJSON()
+  
+  total_results <- base_query$meta$total
+  
+  
+  # Offset value to send to API for each batch
+  batches <- seq(from = 0, to = total_results, by = 1000)
+  names(batches) <- batches
+  
+  pb <- progress_estimated(length(batches))
+  
+  download_locations <- function(offset, .pb = NULL) {
+    # Function to download a single batch from the FDIC Location API
+    if ((!is.null(.pb)) && inherits(.pb, "Progress") && (.pb$i < .pb$n)) .pb$tick()$print()
+    
+    # Ensure offset number is an integer
+    offset <- as.integer(offset)
+    
+    # Build request URL with limits & offset using httr
+    req <- GET(url = "https://banks.data.fdic.gov/api/locations",
+               query = list(limit = 1000, offset = offset),
+               add_headers(accept = "application/json")) %>% 
+      stop_for_status()
+    
+    # Parse JSON response
+    query <- req %>%
+      content(as = "text") %>% 
+      fromJSON()
+    
+    # Return just the embeded data frame
+    return(query$data$data)
+  }
+  
+  # Process batches and merge into a single data frame
+  fdic_bank_locations <- map_df(batches, download_locations, .pb=pb, .id = "offset")
+  
+  # Save the data frame as a CSV for future use.
+  write_csv(fdic_bank_locations, "fdic_bank_locations.csv")
+  
+  # ZIP the CSV for upload to Github
+  zip("fdic_bank_locations.zip", "fdic_bank_locations.csv")
+  
+} else if(!file.exists("fdic_bank_locations.csv")) {
+  
+  unzip("fdic_bank_locations.zip")
+  
+} else {
+  
+  fdic_bank_locations <- read_csv("fdic_bank_locations.csv")
+  
+}
+```
+
+```{r}
+  # Pull a single query from the FDIC Locations API to get metadata and determine total records available
+  base_req <- GET(url = "https://banks.data.fdic.gov/api/institutions",
+                  query = list(limit = 1, offset = 0, filters = "ACTIVE:1"),
+                  add_headers(accept = "application/json")) %>% stop_for_status()
+  
+  base_query <- base_req %>%
+    content(as = "text") %>%
+    fromJSON()
+  
+  total_results <- base_query$meta$total
+  
+  
+  # Offset value to send to API for each batch
+  batches <- seq(from = 0, to = total_results, by = 1000)
+  names(batches) <- batches
+  
+  pb <- progress_estimated(length(batches))
+  
+  download_institutions <- function(offset, .pb = NULL) {
+    # Function to download a single batch from the FDIC Location API
+    if ((!is.null(.pb)) && inherits(.pb, "Progress") && (.pb$i < .pb$n)) .pb$tick()$print()
+    
+    # Ensure offset number is an integer
+    offset <- as.integer(offset)
+    
+    # Build request URL with limits & offset using httr
+    req <- GET(url = "https://banks.data.fdic.gov/api/institutions",
+               query = list(filters = "ACTIVE:1",
+                            limit = 1000,
+                            offset = offset),
+               add_headers(accept = "application/json")) %>% 
+      stop_for_status()
+    
+    # Parse JSON response
+    query <- req %>%
+      content(as = "text") %>% 
+      fromJSON()
+    
+    # Return just the embeded data frame
+    return(query$data$data)
+  }
+  
+  # Process batches and merge into a single data frame
+  fdic_certs <- map_df(batches, download_institutions, .pb=pb, .id = "offset")
+
+```
+
+```{r}
+fdic_certs %>%
+  distinct() %>%
+  nrow()
+```
+
+
+
+```{r}
+fdic_location_df %>%
+  skim()
+```
+    
+
+Still seeing a large number of duplicates
+
+```{r}
+fdic_bank_locations %>%
+  filter(UNINUM %in% fdic_bank_locations$UNINUM[duplicated(fdic_bank_locations$UNINUM)]) %>%
+  count(offset) %>%
+  arrange(as.numeric(offset))
+```
+
+```{r}
+fdic_bank_locations %>%
+  filter(UNINUM %in% fdic_bank_locations$UNINUM[duplicated(fdic_bank_locations$UNINUM)]) %>%
+  select(UNINUM, offset) %>%
+  arrange(UNINUM, as.numeric(offset))
+```
+
+```{r}
+fdic_bank_locations %>%
+  filter(UNINUM %in% fdic_bank_locations$UNINUM[duplicated(fdic_bank_locations$UNINUM)]) %>%
+  ggplot(aes(x = as.numeric(offset), y = as.numeric(UNINUM))) +
+  geom_point()
+```
+
