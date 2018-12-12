@@ -2,7 +2,7 @@
 title: "Does Minnesota Have More Banks Than Nebraska"
 output: html_document
 editor_options: 
-  chunk_output_type: console
+  chunk_output_type: inline
 ---
 
 ```{r setup, include=FALSE}
@@ -35,11 +35,20 @@ if(!file.exists("fdic_bank_locations.zip")) {
   # Offset value to send to API for each batch
   batches <- seq(from = 0, to = total_records, by = 1000)
   
+  names(batches) <- batches
+  
   pb <- progress_estimated(length(batches))
   
   download_locations <- function(offset, total, .pb = NULL) {
+    Sys.sleep(5)
+    batch_handle <- new_handle()
+    handle_setheaders(batch_handle, accept = "application/json")
+    
+    
     # Function to download a single batch from the FDIC Location API
     if ((!is.null(.pb)) && inherits(.pb, "Progress") && (.pb$i < .pb$n)) .pb$tick()$print()
+    
+    offset <- as.integer(offset)
     
     # Limit must be adjusted for the last batch.  Batches always return the number of records set by limit.
     # So if the limit or 1000 is larger than the remaining number of records, the last 1000 records are returned
@@ -52,14 +61,15 @@ if(!file.exists("fdic_bank_locations.zip")) {
     
     # Build URL with limit & offsets and pass to API
     url <- glue("https://banks.data.fdic.gov/api/locations?limit=",limit,"&offest=",offset)
-    response <- curl_fetch_memory(url = url, handle = fdic_handle)$content %>%
+    response <- curl_fetch_memory(url = url, handle = batch_handle)$content %>%
       rawToChar() %>%
       fromJSON()
+    
     return(response$data$data)
   }
   
   # Process batches and merge into a single data frame
-  fdic_bank_locations <- map_df(batches, download_locations, total = total_records, .pb=pb)
+  fdic_bank_locations <- map_df(batches, download_locations, total = total_records, .pb=pb, .id = "offset")
   
   # Save the data frame as a CSV for future use.
   write_csv(fdic_bank_locations, "fdic_bank_locations.csv")
@@ -84,3 +94,67 @@ fdic_bank_locations %>%
 ```
     
 Only 45 unique states? Why not 50?  Which states have no FDIC insured banks?
+
+```{r}
+fdic_bank_locations %>%
+  distinct(NAME) %>%
+  arrange(NAME)
+```
+
+Looks like maybe we only grabbed a subset
+
+```{r}
+fdic_bank_locations %>%
+  count(BKCLASS, sort = T)
+
+fdic_bank_locations %>%
+  distinct(RUNDATE)
+```
+
+```{r}
+fdic_bank_locations %>%
+  count(STALP) %>%
+  arrange(STALP)
+```
+
+```{r}
+fdic_bank_locations %>%
+  count(SERVTYPE, sort = T)
+```
+
+```{r}
+fdic_bank_locations %>%
+  mutate(offset = as.numeric(offset)) %>%
+  distinct(UNINUM, offset) %>%
+  arrange(UNINUM, offset) %>%
+  View()
+
+```
+
+```{r}
+fdic_bank_locations %>%
+  count(UNINUM, NAME, ADDRESS)
+```
+
+```{r}
+fdic_bank_locations %>%
+  filter(UNINUM == 12648) %>%
+  select(offset)
+```
+
+
+So it looks like we didn't pull the data correctly and we have repeats...
+
+```{r}
+batch_one <- download_locations(0, total = total_records)
+batch_two <- download_locations(1000, total = total_records)
+```
+
+```{r}
+tail(batch_one)
+```
+
+```{r}
+head(batch_two)
+```
+
