@@ -77,4 +77,10 @@ if(!file.exists("fdic_bank_locations.zip")) {
   
 }
 ```
+
+```{r}
+fdic_bank_locations %>%
+  skim()
+```
     
+Only 45 unique states? Why not 50?  Which states have no FDIC insured banks?
