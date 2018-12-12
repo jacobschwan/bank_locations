@@ -10,42 +10,71 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-pacman::p_load(tidyverse, rvest, glue, curl, jsonlite)
+pacman::p_load(tidyverse, rvest, glue, curl, jsonlite, skimr)
 
-fdic_handle <- new_handle()
-handle_setheaders(fdic_handle, accept = "application/json")
-url <- glue("https://banks.data.fdic.gov/api/locations")
 
-base_query <- curl_fetch_memory(url = url, handle = fdic_handle)$content %>%
+# Check for data file, download and/or unzip if necessary
+
+if(!file.exists("fdic_bank_locations.zip")) {
+  
+  # Setup new handle to pass http header to FDIC API to request JSON formated data.
+  # Requesting JSON allows retrieval of extra metadata such as total records available
+  # total records will be needed, as a single API call is limited to 1000 records returned
+  # Total will be needed to know how many batches to pull
+  fdic_handle <- new_handle()
+  handle_setheaders(fdic_handle, accept = "application/json")
+  
+  # Pull a single query from the FDIC Locations API to get metadata and determine total records available
+  url <- glue("https://banks.data.fdic.gov/api/locations")
+  base_query <- curl_fetch_memory(url = url, handle = fdic_handle)$content %>%
     rawToChar() %>%
     fromJSON()
-
-total_records <- base_query$meta$total
-
-batches <- seq(from = 0, to = total_records, by = 1000)
-
-pb <- progress_estimated(length(batches))
-
-download_locations <- function(offset, total, .pb = NULL) {
+  
+  total_records <- base_query$meta$total
+  
+  # Offset value to send to API for each batch
+  batches <- seq(from = 0, to = total_records, by = 1000)
+  
+  pb <- progress_estimated(length(batches))
+  
+  download_locations <- function(offset, total, .pb = NULL) {
+    # Function to download a single batch from the FDIC Location API
     if ((!is.null(.pb)) && inherits(.pb, "Progress") && (.pb$i < .pb$n)) .pb$tick()$print()
     
+    # Limit must be adjusted for the last batch.  Batches always return the number of records set by limit.
+    # So if the limit or 1000 is larger than the remaining number of records, the last 1000 records are returned
+    # and data will be duplicated.
     if(offset + 1000 > total) {
-        limit <- total - offset
+      limit <- total - offset
     } else {
-        limit <- 1000
+      limit <- 1000
     }
     
+    # Build URL with limit & offsets and pass to API
     url <- glue("https://banks.data.fdic.gov/api/locations?limit=",limit,"&offest=",offset)
     response <- curl_fetch_memory(url = url, handle = fdic_handle)$content %>%
-        rawToChar() %>%
-        fromJSON()
+      rawToChar() %>%
+      fromJSON()
     return(response$data$data)
+  }
+  
+  # Process batches and merge into a single data frame
+  fdic_bank_locations <- map_df(batches, download_locations, total = total_records, .pb=pb)
+  
+  # Save the data frame as a CSV for future use.
+  write_csv(fdic_bank_locations, "fdic_bank_locations.csv")
+  
+  # ZIP the CSV for upload to Github
+  zip("fdic_bank_locations.zip", "fdic_bank_locations.csv")
+
+} else if(!file.exists("fdic_bank_locations.csv")) {
+
+    unzip("fdic_bank_locations.zip")
+  
+} else {
+  
+  fdic_bank_locations <- read_csv("fdic_bank_locations.csv")
+  
 }
-
-download_locations(90210, total_records)
-
-fdic_bank_locations <- map_df(batches, download_locations, total = total_records, .pb=pb)
-
-write_csv(fdic_bank_locations, "fdic_bank_locations.csv")
 ```
     
