@@ -1,8 +1,6 @@
 ---
-title: "Does Minnesota Have More Banks Than Nebraska"
+title: "Duplicate API Returns"
 output: html_document
-editor_options: 
-  chunk_output_type: inline
 ---
 
 ```{r setup, include=FALSE}
@@ -10,157 +8,111 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-pacman::p_load(tidyverse, rvest, glue, httr, jsonlite, skimr)
+pacman::p_load(tidyverse, httr, jsonlite, janitor)
 ```
 
+```{r}
+# Pull a single query from the FDIC Locations API to get metadata and determine total records available
+base_req <- GET(url = "https://banks.data.fdic.gov/api/locations",
+                query = list(fields = "UNINUM",
+                             limit = 1,
+                             offset = 0),
+                add_headers(accept = "application/json")) %>% stop_for_status()
 
-```{r, eval = F}
-# Check for data file, download and/or unzip if necessary
-
-if(!file.exists("fdic_bank_locations.zip")) {
-  
-  # Pull a single query from the FDIC Locations API to get metadata and determine total records available
-  base_req <- GET(url = "https://banks.data.fdic.gov/api/locations",
-                  query = list(limit = 1, offset = 0),
-                  add_headers(accept = "application/json")) %>% stop_for_status()
-  
-  base_query <- base_req %>%
+base_query <- base_req %>%
     content(as = "text") %>%
     fromJSON()
-  
-  total_results <- base_query$meta$total
-  
-  
-  # Offset value to send to API for each batch
-  batches <- seq(from = 0, to = total_results, by = 1000)
-  names(batches) <- batches
-  
-  pb <- progress_estimated(length(batches))
-  
-  download_locations <- function(offset, .pb = NULL) {
-    # Function to download a single batch from the FDIC Location API
-    if ((!is.null(.pb)) && inherits(.pb, "Progress") && (.pb$i < .pb$n)) .pb$tick()$print()
+
+print(base_query)
+```
+
+```{r}
+(total_results <- base_query$meta$total)
+```
+
+```{r}
+# Create offset values to send to API for each batch
+batches <- seq(from = 0, to = total_results, by = 1000)
+names(batches) <- batches
+
+download_locations <- function(offset) {
+    # Function to download a single batch from the FDIC Location API based on offset value
     
     # Ensure offset number is an integer
     offset <- as.integer(offset)
     
     # Build request URL with limits & offset using httr
+    # fields reduced to just UNINUM for demonstration
     req <- GET(url = "https://banks.data.fdic.gov/api/locations",
-               query = list(limit = 1000, offset = offset),
+               query = list(fields = "UNINUM",
+                            limit = 1000, 
+                            offset = offset),
                add_headers(accept = "application/json")) %>% 
-      stop_for_status()
+        stop_for_status()
     
     # Parse JSON response
     query <- req %>%
-      content(as = "text") %>% 
-      fromJSON()
+        content(as = "text") %>% 
+        fromJSON()
     
     # Return just the embeded data frame
     return(query$data$data)
-  }
-  
-  # Process batches and merge into a single data frame
-  fdic_bank_locations <- map_df(batches, download_locations, .pb=pb, .id = "offset")
-  
-  # Save the data frame as a CSV for future use.
-  write_csv(fdic_bank_locations, "fdic_bank_locations.csv")
-  
-  # ZIP the CSV for upload to Github
-  zip("fdic_bank_locations.zip", "fdic_bank_locations.csv")
-  
-} else if(!file.exists("fdic_bank_locations.csv")) {
-  
-  unzip("fdic_bank_locations.zip")
-  
-} else {
-  
-  fdic_bank_locations <- read_csv("fdic_bank_locations.csv")
-  
 }
 ```
 
 ```{r}
-  # Pull a single query from the FDIC Locations API to get metadata and determine total records available
-  base_req <- GET(url = "https://banks.data.fdic.gov/api/institutions",
-                  query = list(limit = 1, offset = 0, filters = "ACTIVE:1"),
-                  add_headers(accept = "application/json")) %>% stop_for_status()
-  
-  base_query <- base_req %>%
-    content(as = "text") %>%
-    fromJSON()
-  
-  total_results <- base_query$meta$total
-  
-  
-  # Offset value to send to API for each batch
-  batches <- seq(from = 0, to = total_results, by = 1000)
-  names(batches) <- batches
-  
-  pb <- progress_estimated(length(batches))
-  
-  download_institutions <- function(offset, .pb = NULL) {
-    # Function to download a single batch from the FDIC Location API
-    if ((!is.null(.pb)) && inherits(.pb, "Progress") && (.pb$i < .pb$n)) .pb$tick()$print()
-    
-    # Ensure offset number is an integer
-    offset <- as.integer(offset)
-    
-    # Build request URL with limits & offset using httr
-    req <- GET(url = "https://banks.data.fdic.gov/api/institutions",
-               query = list(filters = "ACTIVE:1",
-                            limit = 1000,
-                            offset = offset),
-               add_headers(accept = "application/json")) %>% 
-      stop_for_status()
-    
-    # Parse JSON response
-    query <- req %>%
-      content(as = "text") %>% 
-      fromJSON()
-    
-    # Return just the embeded data frame
-    return(query$data$data)
-  }
-  
-  # Process batches and merge into a single data frame
-  fdic_certs <- map_df(batches, download_institutions, .pb=pb, .id = "offset")
+#Run download_locations() for each offset in batches and join into a single data frame
+#Add offset to indicate which batch the data was pulled from
+run_one <- map_df(batches, download_locations, .id = "offset") %>%
+    write_csv("run_one.csv")
 
+run_one_dups <- run_one %>%
+    get_dupes(UNINUM) %>%
+    write_csv("run_one_dups.csv")
+```
+
+Based on its definition, `r total_results` unique UNINUM values are expected.  Actual unique UNINUM values returned are:
+
+```{r}
+run_one %>%
+    pull(UNINUM) %>%
+    unique() %>%
+    length()
+```
+
+A second run returns a different number unique UNINUM values.
+
+```{r}
+run_two <- map_df(batches, download_locations, .id = "offset") %>%
+    write_csv("run_two.csv")
+
+run_two_dups <- run_two %>%
+    get_dupes(UNINUM) %>%
+    write_csv("run_two_dups.csv")
+
+run_two %>%
+    pull(UNINUM) %>%
+    unique() %>%
+    length()
+```
+
+And a third run returns yet another number of unique UNINUM values
+
+```{r}
+run_three <- map_df(batches, download_locations, .id = "offset") %>%
+    write_csv("run_three.csv")
+
+run_three_dups <- run_three %>%
+    get_dupes(UNINUM) %>%
+    write_csv("run_three_dups.csv")
+
+run_three %>%
+    pull(UNINUM) %>%
+    unique() %>%
+    length()
 ```
 
 ```{r}
-fdic_certs %>%
-  distinct() %>%
-  nrow()
-```
-
-
-
-```{r}
-fdic_location_df %>%
-  skim()
-```
-    
-
-Still seeing a large number of duplicates
-
-```{r}
-fdic_bank_locations %>%
-  filter(UNINUM %in% fdic_bank_locations$UNINUM[duplicated(fdic_bank_locations$UNINUM)]) %>%
-  count(offset) %>%
-  arrange(as.numeric(offset))
-```
-
-```{r}
-fdic_bank_locations %>%
-  filter(UNINUM %in% fdic_bank_locations$UNINUM[duplicated(fdic_bank_locations$UNINUM)]) %>%
-  select(UNINUM, offset) %>%
-  arrange(UNINUM, as.numeric(offset))
-```
-
-```{r}
-fdic_bank_locations %>%
-  filter(UNINUM %in% fdic_bank_locations$UNINUM[duplicated(fdic_bank_locations$UNINUM)]) %>%
-  ggplot(aes(x = as.numeric(offset), y = as.numeric(UNINUM))) +
-  geom_point()
+zip("api_dup_results.zip",files = list.files(pattern = "^run.*csv$"))
 ```
 
