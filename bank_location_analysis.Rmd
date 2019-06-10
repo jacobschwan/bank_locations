@@ -81,7 +81,7 @@ sod_2018 %>%
     count(STNAMEBR, sort = T)
 ```
 
-Minnesota is thrid highest in unique banks with 297 compared to only 160 in Nebraska
+Minnesota is thrid highest in unique banks with 345 compared to only 174 in Nebraska
 
 ```{r}
 (anb_msas <- sod_2018 %>%
@@ -114,6 +114,44 @@ anb_primary_msas %>%
 ```
 
 ```{r}
-pacman::p_load(tidycensus)
+sod_2018 %>%
+    distinct(MSANAMB, NAMEFULL) %>%
+    count(MSANAMB, sort = T)
 ```
 
+
+```{r}
+pacman::p_load(tidycensus)
+
+census_api_key("e8d7f136cbb855c39f0caf864d2153a54270c0b1")
+
+msa_data <- get_acs(geography = "metropolitan statistical area/micropolitan statistical area",
+                    variables = "B01003_001")
+```
+
+```{r}
+sod_2018 %>%
+    distinct(MSABR, MSANAMB, NAMEFULL) %>%
+    count(MSABR, MSANAMB, sort = T) %>%
+    mutate(MSABR = as.character(MSABR)) %>%
+    left_join(msa_data, by = c("MSABR" = "GEOID")) %>%
+    filter(MSABR != 0) %>%
+    select(MSABR, MSANAMB, n, estimate) %>%
+    mutate(density = n/estimate) %>%
+    arrange(desc(density)) %>%
+    filter(MSABR %in% c(33460,36540))
+```
+
+```{r}
+sod_2018 %>%
+    #distinct(MSABR, MSANAMB, NAMEFULL) %>%
+    count(MSABR, MSANAMB, sort = T) %>%
+    mutate(MSABR = as.character(MSABR)) %>%
+    left_join(msa_data, by = c("MSABR" = "GEOID")) %>%
+    filter(MSABR != 0) %>%
+    select(MSABR, MSANAMB, n, estimate) %>%
+    mutate(density = n/estimate,
+           pop_per_branch = estimate/n) %>%
+    arrange(desc(density)) %>%
+    filter(MSABR %in% c(33460,36540))
+```
